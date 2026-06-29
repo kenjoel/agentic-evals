@@ -1,0 +1,9 @@
+sqlalchemy
+python-dotenv
+typer
+rich
+pydantic
+pandas
+
+[dev]
+pytest

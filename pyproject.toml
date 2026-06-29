@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "agentic-evals"
+version = "0.1.0"
+description = "Local database-backed security analyst agent."
+requires-python = ">=3.10"
+dependencies = [
+  "sqlalchemy",
+  "python-dotenv",
+  "typer>=0.16.0",
+  "rich",
+  "pydantic",
+  "pandas"
+]
+
+[project.optional-dependencies]
+dev = ["pytest"]
+
+[project.scripts]
+dbagent = "db_agent.cli:app"
+
+[tool.setuptools.packages.find]
+where = ["src"]
