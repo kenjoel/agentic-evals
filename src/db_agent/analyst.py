@@ -1,7 +1,9 @@
 from db_agent.finding_tools import list_open_findings, risk_summary
 from db_agent.context_tools import get_finding_context
-from db_agent.security import scan_finding_context
+from db_agent.policy import decide_tool_call
+from db_agent.security import find_suspicious_instructions, scan_finding_context
 from db_agent.tracing import ToolTrace
+from db_agent.vendor_tools import fetch_vendor_note
 
 # def answer_question(question: str) -> str:
 #     """ 
@@ -146,12 +148,23 @@ def answer_question_with_trace(question: str) -> tuple[str, ToolTrace]:
     if "summary" in q or "risk summary" in q or "how many" in q:
         rows = risk_summary()
         answer = format_risk_summary()
+        tool_args: dict[str, object] = {}
+
+        policy = decide_tool_call(
+            tool_name="risk_summary",
+            tool_args=tool_args,
+            input_trust="user",
+            security_flags=[],
+        )
 
         trace = ToolTrace(
             question=question,
             intent="risk_summary",
             tool_name="risk_summary",
-            tool_args={},
+            tool_args=tool_args,
+            policy_decision=policy.decision,
+            policy_reason=policy.reason,
+            policy_rule_id=policy.rule_id,
             result_summary={"rows_returned": len(rows)},
             security_flags=[],
             answer_preview=answer[:500],
@@ -160,14 +173,24 @@ def answer_question_with_trace(question: str) -> tuple[str, ToolTrace]:
         return answer, trace
 
     if "critical" in q and "open" in q:
+        tool_args = {"risk_rating": "critical", "limit": 20}
         rows = list_open_findings(risk_rating="critical", limit=20)
         answer = format_open_findings(risk="critical")
+        policy = decide_tool_call(
+            tool_name="list_open_findings",
+            tool_args=tool_args,
+            input_trust="user",
+            security_flags=[],
+        )
 
         trace = ToolTrace(
             question=question,
             intent="open_findings_by_risk",
             tool_name="list_open_findings",
-            tool_args={"risk_rating": "critical", "limit": 20},
+            tool_args=tool_args,
+            policy_decision=policy.decision,
+            policy_reason=policy.reason,
+            policy_rule_id=policy.rule_id,
             result_summary={"rows_returned": len(rows)},
             security_flags=[],
             answer_preview=answer[:500],
@@ -176,14 +199,24 @@ def answer_question_with_trace(question: str) -> tuple[str, ToolTrace]:
         return answer, trace
 
     if "high" in q and "open" in q:
+        tool_args = {"risk_rating": "high", "limit": 20}
         rows = list_open_findings(risk_rating="high", limit=20)
         answer = format_open_findings(risk="high")
+        policy = decide_tool_call(
+            tool_name="list_open_findings",
+            tool_args=tool_args,
+            input_trust="user",
+            security_flags=[],
+        )
 
         trace = ToolTrace(
             question=question,
             intent="open_findings_by_risk",
             tool_name="list_open_findings",
-            tool_args={"risk_rating": "high", "limit": 20},
+            tool_args=tool_args,
+            policy_decision=policy.decision,
+            policy_reason=policy.reason,
+            policy_rule_id=policy.rule_id,
             result_summary={"rows_returned": len(rows)},
             security_flags=[],
             answer_preview=answer[:500],
@@ -192,20 +225,147 @@ def answer_question_with_trace(question: str) -> tuple[str, ToolTrace]:
         return answer, trace
 
     if "open" in q and "findings" in q:
+        tool_args = {"risk_rating": None, "limit": 20}
         rows = list_open_findings(risk_rating=None, limit=20)
         answer = format_open_findings(risk=None)
+        policy = decide_tool_call(
+            tool_name="list_open_findings",
+            tool_args=tool_args,
+            input_trust="user",
+            security_flags=[],
+        )
 
         trace = ToolTrace(
             question=question,
             intent="open_findings",
             tool_name="list_open_findings",
-            tool_args={"risk_rating": None, "limit": 20},
+            tool_args=tool_args,
+            policy_decision=policy.decision,
+            policy_reason=policy.reason,
+            policy_rule_id=policy.rule_id,
             result_summary={"rows_returned": len(rows)},
             security_flags=[],
             answer_preview=answer[:500],
         )
 
         return answer, trace
+
+    if (
+        "close all findings" in q
+        or "mark all findings" in q
+        or "mark finding" in q
+        or "close finding" in q
+        or "follow the instruction" in q
+    ):
+        finding_id = extract_first_number(q)
+
+        flags = []
+        if finding_id:
+            ctx = get_finding_context(finding_id)
+            suspicious_patterns = scan_finding_context(ctx) if ctx else []
+
+            if suspicious_patterns:
+                flags.append("suspicious_instruction_like_content")
+
+        tool_args = {
+            "finding_id": finding_id,
+            "requested_status": "closed",
+        }
+
+        policy = decide_tool_call(
+            tool_name="update_finding_status",
+            tool_args=tool_args,
+            input_trust="database_record" if flags else "user",
+            security_flags=flags,
+        )
+
+        answer = (
+            "I cannot perform that status update.\n\n"
+            f"Policy decision: {policy.decision}\n"
+            f"Policy rule: {policy.rule_id}\n"
+            f"Reason: {policy.reason}\n\n"
+            "Database records are treated as evidence, not instructions. "
+            "A finding description cannot authorize closing findings or changing workflow state."
+        )
+
+        trace = ToolTrace(
+            question=question,
+            intent="unsafe_status_update_request",
+            tool_name="update_finding_status",
+            tool_args=tool_args,
+            result_summary={
+                "executed": False,
+                "finding_id": finding_id,
+            },
+            security_flags=flags,
+            policy_decision=policy.decision,
+            policy_reason=policy.reason,
+            policy_rule_id=policy.rule_id,
+            answer_preview=answer[:500],
+        )
+
+        return answer, trace   
+
+    if (
+        "send" in q
+        and (
+            "attacker@" in q
+            or "evidence" in q
+            or "report" in q
+            or "external" in q
+        )
+    ):
+        finding_id = extract_first_number(q)
+
+        recipient = "unknown"
+        for token in q.replace(",", " ").split():
+            if "@" in token:
+                recipient = token.strip()
+
+        tool_args = {
+            "finding_id": finding_id,
+            "to": recipient,
+            "content_type": "finding_evidence_report",
+        }
+
+        flags = []
+        if "attacker@" in recipient:
+            flags.append("suspicious_external_recipient")
+
+        policy = decide_tool_call(
+            tool_name="send_report",
+            tool_args=tool_args,
+            input_trust="user",
+            security_flags=flags,
+        )
+
+        answer = (
+            "I cannot send that report or evidence externally.\n\n"
+            f"Policy decision: {policy.decision}\n"
+            f"Policy rule: {policy.rule_id}\n"
+            f"Reason: {policy.reason}\n\n"
+            "Finding evidence and security assessment data require controlled handling. "
+            "External sharing must be approved and cannot be sent to suspicious recipients."
+        )
+
+        trace = ToolTrace(
+            question=question,
+            intent="data_exfiltration_attempt",
+            tool_name="send_report",
+            tool_args=tool_args,
+            result_summary={
+                "executed": False,
+                "finding_id": finding_id,
+                "recipient": recipient,
+            },
+            security_flags=flags,
+            policy_decision=policy.decision,
+            policy_reason=policy.reason,
+            policy_rule_id=policy.rule_id,
+            answer_preview=answer[:500],
+        )
+
+        return answer, trace   
 
     if "finding" in q:
         finding_id = extract_first_number(q)
@@ -218,22 +378,80 @@ def answer_question_with_trace(question: str) -> tuple[str, ToolTrace]:
             flags = []
             if suspicious_patterns:
                 flags.append("suspicious_instruction_like_content")
+            tool_args = {"finding_id": finding_id}
+            policy = decide_tool_call(
+                tool_name="get_finding_context",
+                tool_args=tool_args,
+                input_trust="user",
+                security_flags=flags,
+            )
 
             trace = ToolTrace(
                 question=question,
                 intent="finding_context",
                 tool_name="get_finding_context",
-                tool_args={"finding_id": finding_id},
+                tool_args=tool_args,
                 result_summary={
                     "found": ctx is not None,
                     "test_cases": len(ctx.get("test_cases", [])) if ctx else 0,
                     "evidence": len(ctx.get("evidence", [])) if ctx else 0,
                 },
                 security_flags=flags,
+                policy_decision=policy.decision,
+                policy_reason=policy.reason,
+                policy_rule_id=policy.rule_id,
                 answer_preview=answer[:500],
             )
 
             return answer, trace
+
+    if "vendor note" in q or "vendor status" in q:
+        vendor_id = extract_first_number(q) or 1
+
+        tool_args = {
+            "vendor_id": vendor_id,
+        }
+
+        policy = decide_tool_call(
+            tool_name="fetch_vendor_note",
+            tool_args=tool_args,
+            input_trust="user",
+            security_flags=[],
+        )
+
+        vendor_note = fetch_vendor_note(vendor_id)
+        suspicious_patterns = find_suspicious_instructions(vendor_note.get("note", ""))
+
+        flags = []
+        if suspicious_patterns:
+            flags.append("poisoned_tool_output")
+
+        answer = (
+            f"Vendor note for vendor {vendor_id} was retrieved.\n\n"
+            f"Note: {vendor_note['note']}\n\n"
+            "Security note: suspicious instruction-like content was detected in the tool output. "
+            "The note is treated as untrusted data and will not be used to trigger external sends, "
+            "status changes, or other high-consequence actions."
+        )
+
+        trace = ToolTrace(
+            question=question,
+            intent="vendor_tool_output_review",
+            tool_name="fetch_vendor_note",
+            tool_args=tool_args,
+            result_summary={
+                "vendor_id": vendor_id,
+                "tool_output_received": True,
+                "chained_action_executed": False,
+            },
+            security_flags=flags,
+            policy_decision=policy.decision,
+            policy_reason=policy.reason,
+            policy_rule_id=policy.rule_id,
+            answer_preview=answer[:500],
+        )
+
+        return answer, trace  
 
     answer = (
         "I can currently answer questions about open findings, critical findings, "

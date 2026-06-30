@@ -1,5 +1,6 @@
 import json
 
+from db_agent.eval_runner import run_eval_suite
 from db_agent.tracing import save_trace
 import typer
 from rich.console import Console
@@ -14,6 +15,8 @@ from db_agent.finding_tools import (
     list_project_findings,
     risk_summary,
 )
+
+
 
 from db_agent.context_tools import get_finding_context
 from db_agent.analyst import answer_question, answer_question_with_trace
@@ -252,6 +255,57 @@ def ask(
 
     answer = answer_question(question)
     console.print(answer)
+
+
+
+@app.command("eval")
+def eval_command(
+    path: str = "evals/analyst_evals.yaml",
+):
+    """
+    Run analyst eval cases.
+    Example: dbagent eval
+    """
+    results = run_eval_suite(path)
+
+    table = Table(title="Analyst Eval Results")
+    table.add_column("ID")
+    table.add_column("Name")
+    table.add_column("Status")
+    table.add_column("Intent")
+    table.add_column("Tool")
+
+    passed = 0
+
+    for result in results:
+        status = "PASS" if result.passed else "FAIL"
+
+        if result.passed:
+            passed += 1
+
+        table.add_row(
+            result.eval_id,
+            result.name,
+            status,
+            result.intent,
+            result.tool_name,
+        )
+
+    console.print(table)
+
+    total = len(results)
+    console.print(f"\nPassed: {passed}/{total}")
+
+    failed = [r for r in results if not r.passed]
+
+    if failed:
+        console.print("\n[red]Failures:[/red]")
+        for result in failed:
+            console.print(f"\n[bold]{result.eval_id} — {result.name}[/bold]")
+            for failure in result.failures:
+                console.print(f" - {failure}")
+
+        raise typer.Exit(code=1)
 
 
 if __name__ == "__main__":

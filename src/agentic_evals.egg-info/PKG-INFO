@@ -5,9 +5,10 @@ Summary: Local database-backed security analyst agent.
 Requires-Python: >=3.10
 Requires-Dist: sqlalchemy
 Requires-Dist: python-dotenv
-Requires-Dist: typer
+Requires-Dist: typer>=0.16.0
 Requires-Dist: rich
 Requires-Dist: pydantic
 Requires-Dist: pandas
+Requires-Dist: pyyaml
 Provides-Extra: dev
 Requires-Dist: pytest; extra == "dev"

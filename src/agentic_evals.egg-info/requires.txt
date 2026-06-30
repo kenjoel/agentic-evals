@@ -1,9 +1,10 @@
 sqlalchemy
 python-dotenv
-typer
+typer>=0.16.0
 rich
 pydantic
 pandas
+pyyaml
 
 [dev]
 pytest

@@ -7,3 +7,15 @@ src/agentic_evals.egg-info/entry_points.txt
 src/agentic_evals.egg-info/requires.txt
 src/agentic_evals.egg-info/top_level.txt
 src/db_agent/__init__.py
+src/db_agent/analyst.py
+src/db_agent/cli.py
+src/db_agent/context_tools.py
+src/db_agent/db.py
+src/db_agent/finding_tools.py
+src/db_agent/schema.py
+src/db_agent/security.py
+src/db_agent/tools.py
+src/db_agent/tracing.py
+tests/test_analyst.py
+tests/test_security_canary.py
+tests/test_tracing.py

@@ -17,6 +17,9 @@ class ToolTrace:
     created_at: str = field(
         default_factory=lambda: datetime.now(timezone.utc).isoformat()
     )
+    policy_decision: str = ""
+    policy_reason: str = ""
+    policy_rule_id: str = ""
 
 
 def save_trace(trace: ToolTrace, trace_dir: str = "reports/traces") -> Path:
